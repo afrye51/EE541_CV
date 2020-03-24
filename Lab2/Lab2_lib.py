@@ -8,7 +8,7 @@ import numpy as np
 import time
 from scipy import signal
 from skimage.transform import resize
-import scipy.ndimage.filters as fi
+from scipy.ndimage import gaussian_filter
 
 
 def convolv_2d_grayscale(image, kernel, mode='constant', boundary='0'):
@@ -359,20 +359,60 @@ def plot_gaussian_2d(gaussian):
     surf = ax.plot_surface(y.T, x.T, gaussian)
 
 
-def detect_corners(image, alpha=0.04, show=False):
+def harris_alpha(image, alpha=0.04, show=False):
     k = gaussian_2d_order(5, 1, (0,1))
     k2 = gaussian_2d_order(5, 2, 0)
-    i_x = signal.convolve2d(image, k)
-    i_y = signal.convolve2d(image, k.T)
+    i_x = signal.convolve2d(image, k, mode='same')
+    i_y = signal.convolve2d(image, k.T, mode='same')
     i_xy = i_x*i_y
     i_xx = i_x**2
     i_yy = i_y**2
-    i_xy2 = signal.convolve2d(i_xy, k2)
-    i_xx2 = signal.convolve2d(i_xx, k2)
-    i_yy2 = signal.convolve2d(i_yy, k2)
+    i_xy2 = signal.convolve2d(i_xy, k2, mode='same')
+    i_xx2 = signal.convolve2d(i_xx, k2, mode='same')
+    i_yy2 = signal.convolve2d(i_yy, k2, mode='same')
     result = i_xx2*i_yy2 - i_xy2**2 - alpha * (i_xx2 + i_yy2)**2
     if show:
         ajacent_images([i_x, i_y])
         ajacent_images([i_xx, i_yy, i_xy])
+        ajacent_images([i_xx2*i_yy2-i_xy2**2, (i_xx2+i_yy2)**2])
         ajacent_images(result)
-    return result
+    return result / np.max(result)
+
+
+def harris_eig(image, show=False):
+    k = gaussian_2d_order(5, 1, (0,1))
+    k2 = gaussian_2d_order(5, 2, 0)
+    i_x = signal.convolve2d(image, k, mode='same')
+    i_y = signal.convolve2d(image, k.T, mode='same')
+    i_xy = i_x*i_y
+    i_xx = i_x**2
+    i_yy = i_y**2
+    i_xy2 = signal.convolve2d(i_xy, k2, mode='same')
+    i_xx2 = signal.convolve2d(i_xx, k2, mode='same')
+    i_yy2 = signal.convolve2d(i_yy, k2, mode='same')
+    det = i_xx2*i_yy2 - i_xy2**2
+    trace = i_xx2 + i_yy2
+    result = (det / trace)
+    if show:
+        ajacent_images([i_x, i_y])
+        ajacent_images([i_xx2, i_yy2, i_xy2])
+        ajacent_images([det, 1 / trace])
+        ajacent_images(result)
+    return result / np.max(result)
+
+
+def detect_corners(image, mode='eig', show=False):
+    if mode == 'eig':
+        return harris_eig(image, show=show)
+    elif mode == 'alpha':
+        return harris_alpha(image, show=show)
+    else:
+        print('Invalid Mode')
+        return None
+
+
+def threshold_image(image, threshold=0.5):
+    im_np = np.array(image)
+    im_np[im_np < threshold] = 0
+    #im_np[im_np >= threshold] = 1
+    return im_np
