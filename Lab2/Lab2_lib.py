@@ -407,6 +407,7 @@ def threshold_image(image, threshold=0.5):
     #im_np[im_np >= threshold] = 1
     return im_np
 
+
 def local_maxima_dumb(image, n=5):
     # for each pixel (% n) in the image
         # get (x, y) of local maxima
@@ -432,6 +433,7 @@ def local_maxima_dumb(image, n=5):
                 im[x0:x1, y0:y1] = 0
                 im[ind[0], ind[1]] = mx
     return im
+
 
 def local_maxima_descent(image, pix_dist=3, threshold=0.3):
     # for every pixel in the image:
@@ -468,6 +470,7 @@ def local_maxima_descent(image, pix_dist=3, threshold=0.3):
     im_filt2 = im_filt * image
     return im_filt, im_filt2, result
 
+
 def plot_boxes_im(im, s1=1, s2=2, pix_dist=3, threshold=0.3):
     check, theta = detect_corners_harris(im, s1, s2)
     check_filt, check_filt2, result = local_maxima_descent(check, pix_dist, threshold)
@@ -479,7 +482,8 @@ def plot_boxes_im(im, s1=1, s2=2, pix_dist=3, threshold=0.3):
 
     for i in range(len(angles)):
         showFeatures([result[i][1], result[i][0]], 50 * mag[i][0], theta[i][0])
-        
+
+
 def plot_boxes_desc(feats, image=None):
     if image is not None:
         ajacent_images(image)
@@ -487,7 +491,8 @@ def plot_boxes_desc(feats, image=None):
     for i in range(n[0]):
         loc, theta, mag, vect = feats[i]
         showFeatures([loc[1], loc[0]], 50 * mag[0], theta[0])
-    
+
+
 def grab_box(image, loc, size=5):
     ims = np.shape(image)
     n = size // 2
@@ -500,6 +505,7 @@ def grab_box(image, loc, size=5):
     else:
         return image[x_min:x_max, y_min:y_max]
 
+
 def features_descriptors(image, s1=1, s2=2, pix_dist=3, threshold=0.3):
     feat, theta = detect_corners_harris(image, s1, s2)
     feat_filt_max, feat_filt, loc = local_maxima_descent(feat, pix_dist, threshold)
@@ -507,7 +513,8 @@ def features_descriptors(image, s1=1, s2=2, pix_dist=3, threshold=0.3):
     angles = theta[tuple(index)]
     mag = feat_filt[tuple(index)]
     return(create_descriptors(image, loc, angles, mag))
-    
+
+
 def create_descriptors(image, locs, thetas, mags):
     descriptors = []
     for i in range(len(thetas)):
@@ -515,14 +522,7 @@ def create_descriptors(image, locs, thetas, mags):
         if desc is not None:
             descriptors.append(desc)
     return descriptors
-    
-## Descriptors:
-    # Take feature with (x, y) and theta
-    # grab a 10x10 grid about the feature
-    # rotate the feature to the angle theta
-    # re-sample and grab a 5x5 grid about the feature
-    # put all 25 pixel values in a vector
-    # normalize the vector length
+
 
 def create_descriptor(image, loc, theta, mag):
     im_rot = rotate_and_resize(image, loc, theta, 5)
@@ -532,6 +532,7 @@ def create_descriptor(image, loc, theta, mag):
     vect = vect / LA.norm(vect)
     return [loc, theta, mag, vect]
 
+
 def rotate_and_resize(image, loc, theta, ret_size):
     im_rot = grab_box(image, loc, size=(2 * ret_size + 1))
     if im_rot is None:
@@ -539,10 +540,12 @@ def rotate_and_resize(image, loc, theta, ret_size):
     im_rot = rotate(im_rot, theta * 180 / np.pi)
     return grab_box(im_rot, [ret_size, ret_size], ret_size)
 
+
 def diff_features(f1, f2):
     temp, temp, temp, vect1 = f1
     temp, temp, temp, vect2 = f2
     return LA.norm(vect2 - vect1)
+
 
 def compare_features_old(f1s, f2s, threshold=0.2):
     f1_shape = np.shape(f1s)[0]
@@ -559,7 +562,8 @@ def compare_features_old(f1s, f2s, threshold=0.2):
             match.append([f1s[i], f2s[np.argmax(results[i], axis=None)]])#, diff[i]])
     return match
 
-def compare_features(f1s, f2s, threshold=0.2):
+
+def compare_features_threshold(f1s, f2s, threshold=0.2):
     f1_shape = np.shape(f1s)[0]
     f2_shape = np.shape(f2s)[0]
     results = np.zeros((f1_shape, f2_shape))
@@ -572,10 +576,35 @@ def compare_features(f1s, f2s, threshold=0.2):
         mx = np.unravel_index(np.argmin(results, axis=None), results.shape)
         #print(results[mx])
         if results[mx] < threshold:
-            match.append([f1s[mx[0]], f2s[mx[1]], results[mx]])
+            match.append([np.copy(f1s[mx[0]]), np.copy(f2s[mx[1]]), results[mx]])
+        else:
+            return match
         results[mx[0],:] = 10
         results[:,mx[1]] = 10
     return match
+
+
+def compare_features_ratio(f1s, f2s, threshold=1):
+    f1_shape = np.shape(f1s)[0]
+    f2_shape = np.shape(f2s)[0]
+    results = np.zeros((f1_shape, f2_shape))
+    for i in range(f1_shape):
+        for j in range(f2_shape):
+            results[i, j] = diff_features(f1s[i], f2s[j])
+
+    match = []
+    for i in range(np.min([f1_shape, f2_shape])):
+        mx = np.unravel_index(np.argmin(results, axis=None), results.shape)
+        mx_val = results[mx]
+        results[mx] = 10
+        mx2_val = np.min(results[mx[0],:])
+        ratio = mx2_val / mx_val
+        if ratio > threshold:
+            match.append([np.copy(f1s[mx[0]]), np.copy(f2s[mx[1]]), ratio])
+        results[mx[0],:] = 10
+        results[:,mx[1]] = 10
+    return match
+
 
 def connect_features(feats, im1, im2):
     im = np.concatenate((im1, im2), axis=1)
@@ -587,6 +616,4 @@ def connect_features(feats, im1, im2):
         loc1, theta1, mag1, vect1 = f[1]
         plot_boxes_desc([f[0]])
         plot_boxes_desc([f[1]])
-        #print(loc0)
-        #print(loc1)
         plt.plot([loc0[1], loc1[1]], [loc0[0], loc1[0]], 'b-')
