@@ -1,13 +1,15 @@
 import skimage
 from skimage import io
 from skimage import data
+from skimage.transform import resize
+from skimage.transform import rotate
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
+from numpy import linalg as LA
 import time
 from scipy import signal
-from skimage.transform import resize
 from scipy.ndimage import gaussian_filter
 
 
@@ -325,6 +327,7 @@ def ajacent_images(images):
         else:
             print('Image error')
             return
+    return n, shape[0], shape[1]
 
 
 ## Expects:
@@ -359,56 +362,43 @@ def plot_gaussian_2d(gaussian):
     surf = ax.plot_surface(y.T, x.T, gaussian)
 
 
-def harris_alpha(image, alpha=0.04, show=False):
-    k = gaussian_2d_order(5, 1, (0,1))
-    k2 = gaussian_2d_order(5, 2, 0)
-    i_x = signal.convolve2d(image, k, mode='same')
-    i_y = signal.convolve2d(image, k.T, mode='same')
-    i_xy = i_x*i_y
-    i_xx = i_x**2
-    i_yy = i_y**2
-    i_xy2 = signal.convolve2d(i_xy, k2, mode='same')
-    i_xx2 = signal.convolve2d(i_xx, k2, mode='same')
-    i_yy2 = signal.convolve2d(i_yy, k2, mode='same')
+def harris_alpha(i_xx2, i_yy2, i_xy2, alpha=0.04):
     result = i_xx2*i_yy2 - i_xy2**2 - alpha * (i_xx2 + i_yy2)**2
-    if show:
-        ajacent_images([i_x, i_y])
-        ajacent_images([i_xx, i_yy, i_xy])
-        ajacent_images([i_xx2*i_yy2-i_xy2**2, (i_xx2+i_yy2)**2])
-        ajacent_images(result)
     return result / np.max(result)
 
 
-def harris_eig(image, show=False):
-    k = gaussian_2d_order(5, 1, (0,1))
-    k2 = gaussian_2d_order(5, 2, 0)
-    i_x = signal.convolve2d(image, k, mode='same')
-    i_y = signal.convolve2d(image, k.T, mode='same')
-    i_xy = i_x*i_y
-    i_xx = i_x**2
-    i_yy = i_y**2
-    i_xy2 = signal.convolve2d(i_xy, k2, mode='same')
-    i_xx2 = signal.convolve2d(i_xx, k2, mode='same')
-    i_yy2 = signal.convolve2d(i_yy, k2, mode='same')
+def harris_eig(i_xx2, i_yy2, i_xy2):
     det = i_xx2*i_yy2 - i_xy2**2
     trace = i_xx2 + i_yy2
     result = (det / trace)
-    if show:
-        ajacent_images([i_x, i_y])
-        ajacent_images([i_xx2, i_yy2, i_xy2])
-        ajacent_images([det, 1 / trace])
-        ajacent_images(result)
     return result / np.max(result)
 
 
-def detect_corners(image, mode='eig', show=False):
+def detect_corners_harris(image, s1=1, s2=2, mode='eig'):
+    #k = gaussian_2d_order(10, s1, (0,1))
+    #k2 = gaussian_2d_order(10, s2, 0)
+    #i_x = signal.convolve2d(image, k, mode='same')
+    #i_y = signal.convolve2d(image, k.T, mode='same')
+    i_x = gaussian_filter(image, sigma=s1, order=(0,1))
+    i_y = gaussian_filter(image, sigma=s1, order=(1,0))
+    i_xy = i_x*i_y
+    i_xx = i_x**2
+    i_yy = i_y**2
+    #i_xy2 = signal.convolve2d(i_xy, k2, mode='same')
+    #i_xx2 = signal.convolve2d(i_xx, k2, mode='same')
+    #i_yy2 = signal.convolve2d(i_yy, k2, mode='same')
+    i_xy2 = gaussian_filter(i_xy, sigma=s2, order=0)
+    i_xx2 = gaussian_filter(i_xx, sigma=s2, order=0)
+    i_yy2 = gaussian_filter(i_yy, sigma=s2, order=0)
     if mode == 'eig':
-        return harris_eig(image, show=show)
+        result = harris_eig(i_xx2, i_yy2, i_xy2)
     elif mode == 'alpha':
-        return harris_alpha(image, show=show)
+        result = harris_alpha(i_xx2, i_yy2, i_xy2)
     else:
         print('Invalid Mode')
         return None
+    theta = np.arctan2(i_y, i_x)
+    return result, theta
 
 
 def threshold_image(image, threshold=0.5):
@@ -416,3 +406,214 @@ def threshold_image(image, threshold=0.5):
     im_np[im_np < threshold] = 0
     #im_np[im_np >= threshold] = 1
     return im_np
+
+
+def local_maxima_dumb(image, n=5):
+    # for each pixel (% n) in the image
+        # get (x, y) of local maxima
+        # set all other pixels in area to 0
+        # set that pixel to 1
+    im = np.copy(np.array(image))
+    shape = np.shape(im)
+    print(shape)
+    for i in range(shape[0] // n + 1):
+        for j in range(shape[1] // n + 1):
+            x0 = n * i
+            x1 = x0 + n
+            y0 = n * j
+            y1 = y0 + n
+            if x1 > shape[0]:
+                x1 = shape[0]
+            if y1 > shape[1]:
+                y1 = shape[1]
+            if x1 != x0 and y1 != y0:
+                ind = np.unravel_index(np.argmax(im[x0:x1, y0:y1], axis=None), (x1-x0, y1-y0))
+                ind = np.add(ind, (x0, y0))
+                mx = im[ind[0], ind[1]]
+                im[x0:x1, y0:y1] = 0
+                im[ind[0], ind[1]] = mx
+    return im
+
+
+def local_maxima_descent(image, pix_dist=3, threshold=0.3):
+    # for every pixel in the image:
+        # If an ajacent pixel is larger, move to it
+        # else store that pixel's (x, y, mag) in a dictionary type thing
+    direc = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]]
+    im_shape = np.shape(image)
+    local_max = []
+    current = []
+    nxt = []
+    for i in range(im_shape[0] // pix_dist):
+        for j in range(im_shape[1] // pix_dist):
+            i_im = i * pix_dist
+            j_im = j * pix_dist
+            nxt.append([i_im, j_im])
+    while len(nxt) > 0:
+        current = np.copy(nxt)
+        nxt = []
+        for point in current:
+            if image[point[0], point[1]] > threshold:
+                found = False
+                for d in direc:
+                    tmp = [point[0] + d[0], point[1] + d[1]]
+                    if not found and (tmp[0] < im_shape[0]) and (tmp[1] < im_shape[1]):
+                        if image[tmp[0], tmp[1]] > image[point[0], point[1]]:
+                            found = True
+                            nxt.append(tmp)
+                if not found:
+                    local_max.append(point)
+    result = np.unique(local_max, axis=0)
+    im_filt = np.zeros(np.shape(image))
+    index = np.split(result, 2, axis=1)
+    im_filt[tuple(index)] = 1
+    im_filt2 = im_filt * image
+    return im_filt, im_filt2, result
+
+
+def plot_boxes_im(im, s1=1, s2=2, pix_dist=3, threshold=0.3):
+    check, theta = detect_corners_harris(im, s1, s2)
+    check_filt, check_filt2, result = local_maxima_descent(check, pix_dist, threshold)
+    
+    index = np.split(result, 2, axis=1)
+    angles = theta[tuple(index)]
+    mag = check_filt2[tuple(index)]
+    ajacent_images(im)
+
+    for i in range(len(angles)):
+        showFeatures([result[i][1], result[i][0]], 50 * mag[i][0], theta[i][0])
+
+
+def plot_boxes_desc(feats, image=None):
+    if image is not None:
+        ajacent_images(image)
+    n = np.shape(feats)
+    for i in range(n[0]):
+        loc, theta, mag, vect = feats[i]
+        showFeatures([loc[1], loc[0]], 50 * mag[0], theta[0])
+
+
+def grab_box(image, loc, size=5):
+    ims = np.shape(image)
+    n = size // 2
+    x_min = loc[0] - n
+    x_max = loc[0] + n + 1
+    y_min = loc[1] - n
+    y_max = loc[1] + n + 1
+    if x_min < 0 or y_min < 0 or x_max > ims[0] or y_max > ims[1]:
+        return None
+    else:
+        return image[x_min:x_max, y_min:y_max]
+
+
+def features_descriptors(image, s1=1, s2=2, pix_dist=3, threshold=0.3):
+    feat, theta = detect_corners_harris(image, s1, s2)
+    feat_filt_max, feat_filt, loc = local_maxima_descent(feat, pix_dist, threshold)
+    index = np.split(loc, 2, axis=1)
+    angles = theta[tuple(index)]
+    mag = feat_filt[tuple(index)]
+    return(create_descriptors(image, loc, angles, mag))
+
+
+def create_descriptors(image, locs, thetas, mags):
+    descriptors = []
+    for i in range(len(thetas)):
+        desc = create_descriptor(image, locs[i], thetas[i], mags[i])
+        if desc is not None:
+            descriptors.append(desc)
+    return descriptors
+
+
+def create_descriptor(image, loc, theta, mag):
+    im_rot = rotate_and_resize(image, loc, theta, 5)
+    if im_rot is None:
+        return None
+    vect = np.reshape(im_rot, (25, 1))
+    vect = vect / LA.norm(vect)
+    return [loc, theta, mag, vect]
+
+
+def rotate_and_resize(image, loc, theta, ret_size):
+    im_rot = grab_box(image, loc, size=(2 * ret_size + 1))
+    if im_rot is None:
+        return None
+    im_rot = rotate(im_rot, theta * 180 / np.pi)
+    return grab_box(im_rot, [ret_size, ret_size], ret_size)
+
+
+def diff_features(f1, f2):
+    temp, temp, temp, vect1 = f1
+    temp, temp, temp, vect2 = f2
+    return LA.norm(vect2 - vect1)
+
+
+def compare_features_old(f1s, f2s, threshold=0.2):
+    f1_shape = np.shape(f1s)[0]
+    f2_shape = np.shape(f2s)[0]
+    results = np.zeros((f1_shape, f2_shape))
+    for i in range(f1_shape):
+        for j in range(f2_shape):
+            results[i, j] = diff_features(f1s[i], f2s[j])
+            
+    diff = np.min(results, axis=0)
+    match = []
+    for i in range(f1_shape):
+        if diff[i] < threshold:
+            match.append([f1s[i], f2s[np.argmax(results[i], axis=None)]])#, diff[i]])
+    return match
+
+
+def compare_features_threshold(f1s, f2s, threshold=0.2):
+    f1_shape = np.shape(f1s)[0]
+    f2_shape = np.shape(f2s)[0]
+    results = np.zeros((f1_shape, f2_shape))
+    for i in range(f1_shape):
+        for j in range(f2_shape):
+            results[i, j] = diff_features(f1s[i], f2s[j])
+
+    match = []
+    for i in range(np.min([f1_shape, f2_shape])):
+        mx = np.unravel_index(np.argmin(results, axis=None), results.shape)
+        #print(results[mx])
+        if results[mx] < threshold:
+            match.append([np.copy(f1s[mx[0]]), np.copy(f2s[mx[1]]), results[mx]])
+        else:
+            return match
+        results[mx[0],:] = 10
+        results[:,mx[1]] = 10
+    return match
+
+
+def compare_features_ratio(f1s, f2s, threshold=1):
+    f1_shape = np.shape(f1s)[0]
+    f2_shape = np.shape(f2s)[0]
+    results = np.zeros((f1_shape, f2_shape))
+    for i in range(f1_shape):
+        for j in range(f2_shape):
+            results[i, j] = diff_features(f1s[i], f2s[j])
+
+    match = []
+    for i in range(np.min([f1_shape, f2_shape])):
+        mx = np.unravel_index(np.argmin(results, axis=None), results.shape)
+        mx_val = results[mx]
+        results[mx] = 10
+        mx2_val = np.min(results[mx[0],:])
+        ratio = mx2_val / mx_val
+        if ratio > threshold:
+            match.append([np.copy(f1s[mx[0]]), np.copy(f2s[mx[1]]), ratio])
+        results[mx[0],:] = 10
+        results[:,mx[1]] = 10
+    return match
+
+
+def connect_features(feats, im1, im2):
+    im = np.concatenate((im1, im2), axis=1)
+    ajacent_images(im)
+    x = np.shape(im1[1])
+    for f in feats:
+        f[1][0][1] += x
+        loc0, theta0, mag0, vect0 = f[0]
+        loc1, theta1, mag1, vect1 = f[1]
+        plot_boxes_desc([f[0]])
+        plot_boxes_desc([f[1]])
+        plt.plot([loc0[1], loc1[1]], [loc0[0], loc1[0]], 'b-')
