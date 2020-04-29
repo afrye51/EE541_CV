@@ -10,7 +10,11 @@ import numpy as np
 from numpy import linalg as LA
 import time
 from scipy import signal
+from scipy import linalg
 from scipy.ndimage import gaussian_filter
+
+
+################### LAB 1 FUNCTIONS ##################
 
 
 def convolv_2d_grayscale(image, kernel, mode='constant', boundary='0'):
@@ -401,6 +405,9 @@ def detect_corners_harris(image, s1=1, s2=2, mode='eig'):
     return result, theta
 
 
+############### LAB 2 FUNCTIONS ###################
+
+
 def threshold_image(image, threshold=0.5):
     im_np = np.array(image)
     im_np[im_np < threshold] = 0
@@ -617,3 +624,305 @@ def connect_features(feats, im1, im2):
         plot_boxes_desc([f[0]])
         plot_boxes_desc([f[1]])
         plt.plot([loc0[1], loc1[1]], [loc0[0], loc1[0]], 'b-')
+
+
+################# LAB 3 FUNCTIONS #######################
+
+
+def un_bias_image_sets(im_array):
+    num_sets = np.shape(im_array)[0]
+    num_im = np.shape(im_array)[1]
+    im_array_unbiased = np.zeros(np.shape(im_array))
+    for i in range(num_sets):
+        im_norm = np.zeros((np.shape(im_array)[2], np.shape(im_array)[3]))
+        for j in range(num_im):
+            im_norm += im_array[i][j] / num_im
+        for j in range(num_im):
+            im_array_unbiased[i][j] = im_array[i][j] - im_norm
+    return im_array_unbiased
+
+
+def x_from_image_sets(images):
+    num_sets = np.shape(images)[0]
+    num_im = np.shape(images)[1]
+    dim0 = np.shape(images)[2]
+    dim1 = np.shape(images)[3]
+    x = np.zeros((num_sets,dim0*dim1,num_im), dtype=np.float32)
+    for i in range(num_sets):
+        for j in range(num_im):
+            x[i][:,j] = images[i][j].reshape(dim0*dim1)
+    return x
+
+
+def svd_from_x(x):
+    num_sets = np.shape(x)[0]
+    num_pix = np.shape(x)[1]
+    num_im = np.shape(x)[2]
+    u = np.zeros((num_sets,num_pix,num_im), dtype=np.float32)
+    sv = np.zeros((num_sets,num_im), dtype=np.float32)
+    vt = np.zeros((num_sets,num_im,num_im), dtype=np.float32)
+    for i in range(num_sets):
+        u[i], sv[i], vt[i] = np.linalg.svd(x[i], full_matrices=False)
+    return np.array(u), np.array(sv), np.array(vt)
+
+
+def m_from_u_x(u, x, k=None):
+    if k is None:
+        k = np.shape(x)[2]
+    
+    num_sets = np.shape(x)[0]
+    num_im = np.shape(x)[2]
+    m = np.zeros((num_sets,k,num_im))
+    for i in range(num_sets):
+        m[i] = u[i,:,0:k].T @ x[i]
+    return m
+
+
+def x_svd_m_from_image_sets(images):
+    
+    num_sets = np.shape(images)[0]
+    num_im = np.shape(images)[1]
+    dim0 = np.shape(images)[2]
+    dim1 = np.shape(images)[3]
+    x = np.zeros((num_sets,dim0*dim1,num_im), dtype=np.float32)
+    u = np.zeros((num_sets,dim0*dim1,num_im), dtype=np.float32)
+    sv = np.zeros((num_sets,num_im), dtype=np.float32)
+    vt = np.zeros((num_sets,num_im,num_im), dtype=np.float32)
+    m = np.zeros((num_sets,num_im,num_im))
+    for i in range(num_sets):
+        for j in range(num_im):
+            x[i][:,j] = images[i][j].reshape(dim0*dim1)
+        u[i], sv[i], vt[i] = np.linalg.svd(x[i], full_matrices=False)
+        m[i] = u[i].T @ x[i]
+    return x, u, sv, vt, m
+
+
+def g_svd_m_from_x(x):
+    
+    num_sets = np.shape(x)[0]
+    num_pix = np.shape(x)[1]
+    num_im = np.shape(x)[2]
+    
+    g = np.zeros((num_pix,num_sets*num_im), dtype=np.float32)
+    for i in range(num_sets):
+        for j in range(num_im):
+            temp = i*num_im + j
+            g[:,temp] = x[i,:,j]
+    u, sv, vt = np.linalg.svd(g, full_matrices=False)
+    m = u.T @ g
+    return g, u, sv, vt, m
+
+
+def plot_3d_manifold(m, im_min_groups, num=None):
+    fig = plt.figure()
+    if num is None:
+        M = m
+        fig.suptitle('3D manifold Pose for Global set')
+    else:
+        M = m[num]
+        fig.suptitle('3D manifold Pose for set ' + str(im_min_groups[num]))
+
+    ax = plt.axes(projection='3d')
+    ax.plot3D(M[0,:], M[1,:], M[2,:],'blue')
+    ax.scatter3D(M[0,:], M[1,:], M[2,:],color='red')
+    ax.set_xlabel('$\phi_1$')
+    ax.set_ylabel('$\phi_2$')
+    ax.set_zlabel('$\phi_3$')
+    return
+
+
+def display_eigenimages(images, u, im_indices):
+    im_dim0 = np.shape(images)[1]
+    im_dim1 = np.shape(images)[2]
+    im_arr = []
+    eig_arr = []
+    
+    for im_index in im_indices:
+        im_arr.append(images[im_index])
+        eig_arr.append(u[:,im_index].reshape(im_dim0,im_dim1))
+    
+    ajacent_images(im_arr)
+    ajacent_images(eig_arr)
+    return
+
+
+def computeER(x, sv, goal=None):
+    x_norm = np.linalg.norm(x)**2
+    data = []
+    for i in range(len(sv)):
+        ER = np.sum(sv[0:i]**2) / x_norm
+        if goal is not None and ER > goal:
+            return i
+        elif goal is None:
+            data.append([i, ER])
+    
+    return data
+
+
+def plotER(data, nums, im_min_groups, max_k = 128):
+    fig = plt.figure()
+    fig.suptitle('Energy recovery ratio vs. basis dimension')
+    ax = plt.axes()
+    legend_arr = []
+    for num in nums:
+        x, y = np.hsplit(np.array(data[num]), 2)
+        ax.plot(x[0:max_k], y[0:max_k])
+        if num < 20:
+            legend_arr.append(im_min_groups[num])
+        elif num == 20:
+            legend_arr.append('Global Classifier')
+    fig.legend(legend_arr)
+    return
+
+
+def print_array(array, end_char='\n'):
+    print('[', end ='')
+    for element in array:
+        print('%7.3f' % (float(element)), end ='')
+        print(',', end ='')
+    print(']', end=end_char)
+    return
+
+
+def disp_ER_tables(k_all, k_all_list, im_min_groups):
+    print('Minimum basis dimension to reach a given energy recovery for each classifier')
+    print_array(k_all_list, end_char='')
+    print(' - ER Ratio')
+    for i in range(np.shape(k_all)[0]):
+        print_array(k_all[i], end_char='')
+        if i < 20:
+            print(' - ' + im_min_groups[i])
+        elif i == 20:
+            print(' - Global')
+    return
+
+
+def disp_class_tables(k_all, k_all_list, data, realm, im_min_groups, desc='Average error (radians)'):
+    print(desc + ' for each ' + realm + ' classifier at given Energy recovery ratios')
+    print_array(k_all_list, end_char='')
+    print(' - ER Ratio')
+    for i in range(np.shape(k_all)[0] - 1):
+        arr = [data[i,int(k)] for k in k_all[i]]
+        print_array(arr, end_char='')
+        print(' - ' + im_min_groups[i])
+    return
+
+
+def classify_object(test_image, u, m, k):
+    x_dim = np.shape(u)[0]
+    m_dim = np.shape(m)[1]
+    
+    x_new = test_image.reshape(x_dim)
+    p = u[:,0:k].T @ x_new
+
+    min_error = 0
+    min_image = 0
+    for i in range(m_dim):
+        error = np.linalg.norm(p - m[0:k,i])
+        if i == 0:
+            min_error = error
+            min_image = 0
+        elif error < min_error:
+            min_error = error
+            min_image = i
+    return min_image
+
+
+def local_classification_avg_error(test_images, test_ans, train_ans, u, m, k_min=1, k_max=128):
+    num_im = np.shape(test_images)[0]
+    im_sets = np.arange(0, np.shape(test_images)[0])
+    k_steps = np.arange(k_min, k_max)
+    data = np.zeros((len(im_sets), len(k_steps)))
+    
+    for i in range(len(im_sets)):
+        for j in range(len(k_steps)):
+            for k in range(num_im):
+                guess = classify_object(test_images[i][im_sets[k]], u[i], m[i], k_steps[j])
+                data[i, j] += np.fabs((test_ans[im_sets[k]] - train_ans[guess]) / num_im)
+    return data
+
+
+def plot_class_error(data, nums, im_min_groups, title_addon, k_max = 128):
+    fig = plt.figure()
+    fig.suptitle(title_addon + ' vs. basis dimension')
+    ax = plt.axes()
+    ax.set_xlabel('Basis dimension')
+    ax.set_ylabel(title_addon)
+    legend_arr = []
+    x = np.arange(0, np.shape(data)[1])
+    for num in nums:
+        y = data[num]
+        ax.plot(x[0:k_max], y[0:k_max])
+        legend_arr.append(im_min_groups[num])
+    fig.legend(legend_arr)
+    return
+
+
+def global_classification_avg_error(test_images, test_ans, train_ans, u, m, k_min=1, k_max=128):
+    num_im = np.shape(test_images)[0]
+    im_sets = np.arange(0, np.shape(test_images)[0])
+    k_steps = np.arange(k_min, k_max)
+    data = np.zeros((len(im_sets), len(k_steps)))
+    accuracy = np.zeros((len(im_sets), len(k_steps)))
+    
+    for i in range(len(im_sets)):
+        for j in range(len(k_steps)):
+            for k in range(num_im):
+                guess = classify_object(test_images[i][im_sets[k]], u, m, k_steps[j])
+                data[i, j] += np.fabs((test_ans[im_sets[k]] - train_ans[guess % 128]) / num_im)
+                if guess // 128 != i:
+                    accuracy[i, j] += 1
+    return data, accuracy
+
+
+def image_from_user(test_image, test_ans, train_image, train_ans, u, m, ug, mg, im_min_groups, k_all, k_all_list):
+    im_sets = np.shape(test_image)[0]
+    im_count = np.shape(test_image)[1]
+    k_max = np.shape(m)[1]
+    
+    fig = plt.figure()
+    fig.set_size_inches(11,8)
+    fig.suptitle('Object list')
+    for i in range(im_sets):
+        plt.subplot(4,5,i+1)
+        plt.axis('off')
+        plt.title(im_min_groups[i] + ' [' + str(i) + ']')
+        plt.imshow(test_image[i][0], cmap='gray')
+    plt.show()
+    
+    set_num = int(input('Please enter a number 0-' + str(im_sets-1) + ' to select a test image set: '))
+    im_num = int(input('Please enter a number 0-' + str(im_count-1) + ' to select a specific image: '))
+    print('For this set, the recommended k values for a given energy recovery ration are: ')
+    print_array(k_all_list)
+    print_array(k_all[set_num])
+    k = int(input('Please enter a number 0-' + str(k_max-1) + ' to select a subspace dimension: '))
+    
+    guess = classify_object(test_image[set_num][im_num], u[set_num], m[set_num], k)
+    ajacent_images([test_image[set_num][im_num], train_image[set_num][guess]])
+    plt.show()
+    
+    print('Left is the test image, right is the closest match')
+    print('True pose = ' + str(test_ans[im_num]) + ', Estimated pose = ' + str(train_ans[guess]))
+    error = train_ans[guess] - test_ans[im_num]
+    print('Error is ' + str(error) + ' Radians, or ' + str(error*180/np.pi) + ' Degrees')
+    
+    yn = input('Would you also like to test the global classifier on this object? (y/n): ')
+    if yn == 'y' or yn == 'Y':
+        print('For the global classifier, the recommended k values for a given energy recovery ration are: ')
+        print_array(k_all_list)
+        print_array(k_all[20])
+        k = int(input('Please enter a number 0-' + str(k_max-1) + ' to select a subspace dimension: '))
+
+        guess = classify_object(test_image[set_num][im_num], ug, mg, k)
+        guess_im = guess % np.shape(train_image)[1]
+        guess_set = guess // np.shape(train_image)[1]
+        ajacent_images([test_image[set_num][im_num], train_image[guess_set][guess_im]])
+        plt.show()
+
+        print('Left is the test image, right is the closest match')
+        print('True set = ' + im_min_groups[set_num] + ', Estimated pose = ' + im_min_groups[guess_set])
+        print('True pose = ' + str(test_ans[im_num]) + ', Estimated pose = ' + str(train_ans[guess_im]))
+        error = train_ans[guess_im] - test_ans[im_num]
+        print('Error is ' + str(error) + ' Radians, or ' + str(error*180/np.pi) + ' Degrees')
+        return
+
