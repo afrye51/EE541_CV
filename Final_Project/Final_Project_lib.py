@@ -12,6 +12,7 @@ import time
 from scipy import signal
 from scipy import linalg
 from scipy.ndimage import gaussian_filter
+import cv2
 
 
 ################### LAB 1 FUNCTIONS ##################
@@ -927,3 +928,269 @@ def image_from_user(test_image, test_ans, train_image, train_ans, u, m, ug, mg, 
         print('Error is ' + str(error) + ' Radians, or ' + str(error*180/np.pi) + ' Degrees')
         return
 
+
+########################## FINAL PROJECT FUNCTIONS ####################
+
+
+def average_displacement(matches, kp1, kp2):
+    u = [0, 0]
+    std = [0, 0]
+    n_matches = np.shape(matches)[0]
+    for match in matches:
+        q_index = match[0].queryIdx
+        t_index = match[0].trainIdx
+        dx = kp2[t_index].pt[0] - kp1[q_index].pt[0]
+        dy = kp2[t_index].pt[1] - kp1[q_index].pt[1]
+        u[0] += dx / n_matches
+        u[1] += dy / n_matches
+    
+    for match in matches:
+        q_index = match[0].queryIdx
+        t_index = match[0].trainIdx
+        dx = kp2[t_index].pt[0] - kp1[q_index].pt[0]
+        dy = kp2[t_index].pt[1] - kp1[q_index].pt[1]
+        std[0] += (dx - u[0])**2 / n_matches
+        std[1] += (dy - u[1])**2 / n_matches
+    
+    return u, np.sqrt(std)
+
+
+def overlap_images(im1, im2, dxy, opacity=0.5):
+    dy, dx = int(dxy[0]), int(dxy[1])
+    x_max = int(np.max([np.shape(im2)[0], dx + np.shape(im1)[0]]))
+    x_min = int(np.min([0, dx]))
+    y_max = int(np.max([np.shape(im2)[1], dy + np.shape(im1)[1]]))
+    y_min = int(np.min([0, dy]))
+
+    if len(np.shape(im1)) != len(np.shape(im2)):
+        print('Images not both either RGB or gray')
+        return
+    elif len(np.shape(im1)) == 3:
+        im = np.zeros((x_max-x_min, y_max-y_min, 3), dtype=np.uint8)
+    elif len(np.shape(im1)) == 2:
+        im = np.zeros((x_max-x_min, y_max-y_min), dtype=np.uint8)
+    else:
+        print('Image Error, check dimensions')
+        return
+
+    im1_x_min = np.max([0, dx])
+    im1_x_max = im1_x_min + np.shape(im1)[0]
+    im1_y_min = np.max([0, dy])
+    im1_y_max = im1_y_min + np.shape(im1)[1]
+
+    im2_x_min = np.max([0, -dx])
+    im2_x_max = im2_x_min + np.shape(im2)[0]
+    im2_y_min = np.max([0, -dy])
+    im2_y_max = im2_y_min + np.shape(im2)[1]
+
+    im[im1_x_min:im1_x_max,im1_y_min:im1_y_max] = im[im1_x_min:im1_x_max,im1_y_min:im1_y_max] + opacity * im1
+    im[im2_x_min:im2_x_max,im2_y_min:im2_y_max] = im[im2_x_min:im2_x_max,im2_y_min:im2_y_max] + opacity * im2
+
+    return im
+    
+
+def direct_blend_images(im1, im2, dxy):
+    dy, dx = int(dxy[0]), int(dxy[1])
+    x_max = int(np.max([np.shape(im2)[0], dx + np.shape(im1)[0]]))
+    x_min = int(np.min([0, dx]))
+    y_max = int(np.max([np.shape(im2)[1], dy + np.shape(im1)[1]]))
+    y_min = int(np.min([0, dy]))
+
+    if len(np.shape(im1)) != len(np.shape(im2)):
+        print('Images not both either RGB or gray')
+        return
+    elif len(np.shape(im1)) == 3:
+        im = np.zeros((x_max-x_min, y_max-y_min, 3), dtype=np.uint8)
+    elif len(np.shape(im1)) == 2:
+        im = np.zeros((x_max-x_min, y_max-y_min), dtype=np.uint8)
+    else:
+        print('Image Error, check dimensions')
+        return
+
+    im1_x_min = np.max([0, dx])
+    im1_x_max = im1_x_min + np.shape(im1)[0]
+    im1_y_min = np.max([0, dy])
+    im1_y_max = im1_y_min + np.shape(im1)[1]
+
+    im2_x_min = np.max([0, -dx])
+    im2_x_max = im2_x_min + np.shape(im2)[0]
+    im2_y_min = np.max([0, -dy])
+    im2_y_max = im2_y_min + np.shape(im2)[1]
+    
+    im[im2_x_min:im2_x_max,im2_y_min:im2_y_max] = im2
+    im[im1_x_min:im1_x_max,im1_y_min:im1_y_max] = im1
+    
+    return im
+
+
+def direct_blend_images_H(im1, im2, dxy):
+    dy, dx = int(dxy[0]), int(dxy[1])
+    x_max = int(np.max([np.shape(im2)[0], dx + np.shape(im1)[0]]))
+    x_min = int(np.min([0, dx]))
+    y_max = int(np.max([np.shape(im2)[1], dy + np.shape(im1)[1]]))
+    y_min = int(np.min([0, dy]))
+
+    if len(np.shape(im1)) != len(np.shape(im2)):
+        print('Images not both either RGB or gray')
+        return
+    elif len(np.shape(im1)) == 3:
+        im = np.zeros((x_max-x_min, y_max-y_min, 3), dtype=np.uint8)
+    elif len(np.shape(im1)) == 2:
+        im = np.zeros((x_max-x_min, y_max-y_min), dtype=np.uint8)
+    else:
+        print('Image Error, check dimensions')
+        return
+
+    im1_x_min = np.max([0, dx])
+    im1_x_max = im1_x_min + np.shape(im1)[0]
+    im1_y_min = np.max([0, dy])
+    im1_y_max = im1_y_min + np.shape(im1)[1]
+    im1_x = np.arange(im1_x_min, im1_x_max, 1)
+    im1_y = np.arange(im1_y_min, im1_y_max, 1)
+
+    im2_x_min = np.max([0, -dx])
+    im2_x_max = im2_x_min + np.shape(im2)[0]
+    im2_y_min = np.max([0, -dy])
+    im2_y_max = im2_y_min + np.shape(im2)[1]
+    
+    im[im2_x_min:im2_x_max,im2_y_min:im2_y_max] = im2
+    
+    for i in range(len(im1_x)):
+        for j in range(len(im1_y)):
+            if im1[im1_x[i]-im1_x_min,im1_y[j]-im1_y_min] != 0:
+                im[im1_x[i],im1_y[j]] = im1[im1_x[i]-im1_x_min,im1_y[j]-im1_y_min]
+    #im[im1_x_min:im1_x_max,im1_y_min:im1_y_max] = im1[im1 == 0]
+    
+    return im
+
+
+def lsq_image_stitch(im1, im2, matches, kp1, kp2):
+    n_matches = np.shape(matches)[0]
+
+    A = np.zeros((0, 6))
+    b = np.zeros((0, 1))
+    for match in matches:
+        q_index = match[0].queryIdx
+        t_index = match[0].trainIdx
+        A = np.vstack((A, [kp2[t_index].pt[0], kp2[t_index].pt[1], 1, 0, 0, 0]))
+        A = np.vstack((A, [0, 0, 0, kp2[t_index].pt[0], kp2[t_index].pt[1], 1]))
+        b = np.vstack((b, [[kp1[q_index].pt[0]], [kp1[q_index].pt[1]]]))
+    return np.array(LA.inv(A.T @ A) @ (A.T @ b)).reshape((2, 3))
+
+
+def warp_perspective_blend(im, im2, H, max_size=(5000,5000)):
+    x_add = 0
+    y_add = 0
+    
+    x_in_max = np.shape(im)[0]
+    y_in_max = np.shape(im)[1]
+    out_00 = ([0, 0, 1]) @ H.T
+    out_m0 = ([x_in_max, 0, 1]) @ H.T
+    out_mm = ([x_in_max, y_in_max, 1]) @ H.T
+    out_0m = ([0, y_in_max, 1]) @ H.T
+    out = np.array([out_00, out_m0, out_mm, out_0m])
+    x_max = np.max(out[:,0])
+    x_min = np.min(out[:,0])
+    y_max = np.max(out[:,1])
+    y_min = np.min(out[:,1])
+    
+    if x_min < 0:
+        x_add = -x_min
+        x_max -= x_min
+        x_min = 0
+    elif y_min < 0:
+        y_add = -y_min
+        y_max -= y_min
+        y_min = 0
+    x_max = np.max([x_max, max_size[0]])
+    y_max = np.max([y_max, max_size[0]])
+    
+    H[0][2] += x_add
+    H[1][2] += y_add
+    im_warp = cv2.warpPerspective(im, h, (5000, 5000))
+    
+    direct_blend_images(im_warp, im2, [x_add, y_add])
+    return
+
+
+def sift_good_matches(img1, img2, threshold=0.5):
+
+    # Code essentially copied from: https://docs.opencv.org/master/dc/dc3/tutorial_py_matcher.html
+    sift = cv2.xfeatures2d.SIFT_create()
+    kp1, des1 = sift.detectAndCompute(img1,None)
+    kp2, des2 = sift.detectAndCompute(img2,None)
+
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(des1,des2,k=2)
+    print('Got ' + str(np.shape(matches)[0]) + ' matches')
+
+    good = []
+    for m,n in matches:
+        if m.distance < threshold*n.distance:
+            good.append([m])
+    print('Got ' + str(np.shape(good)[0]) + ' good matches')
+    return good, kp1, kp2
+
+
+def orb_good_matches(img1, img2, threshold=0.5):
+
+    # Code essentially copied from: https://docs.opencv.org/master/dc/dc3/tutorial_py_matcher.html
+    orb = cv2.ORB_create()
+    kp1, des1 = orb.detectAndCompute(img1,None)
+    kp2, des2 = orb.detectAndCompute(img2,None)
+
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(des1,des2,k=2)
+    print('Got ' + str(np.shape(matches)[0]) + ' matches')
+
+    good = []
+    for m,n in matches:
+        if m.distance < threshold*n.distance:
+            good.append([m])
+    print('Got ' + str(np.shape(good)[0]) + ' good matches')
+    return good, kp1, kp2
+
+
+def panoramic(images, method='direct', detector='sift', threshold=0.5):
+    num_im = np.shape(images)[0]
+    image = np.copy(images[0])
+    for i in range(1, num_im):
+
+        if detector == 'sift':
+            good, kp1, kp2 = sift_good_matches(image, images[i], threshold)
+
+        elif detector == 'orb':
+            good, kp1, kp2 = orb_good_matches(image, images[i], threshold)
+
+        if method == 'direct':
+            if np.shape(good)[0] < 4:
+                print('Too few keypoints, try a higher threshold')
+                return image
+            u, std = average_displacement(good, kp1, kp2)
+            print('mean: ' + str(u) + ' STD: ' + str(std))
+            image = direct_blend_images(image, images[i], u)
+
+        elif method == 'affine':
+            if np.shape(good)[0] < 4:
+                print('Too few keypoints, try a higher threshold')
+                return image
+            u, std = average_displacement(good, kp1, kp2)
+            print('mean: ' + str(u) + ' STD: ' + str(std))
+            R = lsq_image_stitch(image, images[i], good, kp1, kp2)
+            im_affine = cv2.warpAffine(images[i], R, (2000, 1500))
+            image = direct_blend_images_H(image, im_affine, [0, 0])
+
+        elif method == 'homography':
+            if np.shape(good)[0] < 4:
+                print('Too few keypoints, try a higher threshold')
+                return image
+            u, std = average_displacement(good, kp1, kp2)
+            print('mean: ' + str(u) + ' STD: ' + str(std))
+            src_pts = np.float32([kp1[m[0].queryIdx].pt for m in good]).reshape(-1,1,2)
+            dst_pts = np.float32([kp2[m[0].trainIdx].pt for m in good]).reshape(-1,1,2)
+
+            h, status = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+            im_hom = cv2.warpPerspective(images[i], h, (2000, 1500))
+            image = direct_blend_images_H(image, im_hom, [0, 0])
+
+    return image
